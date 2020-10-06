@@ -1,0 +1,253 @@
+---
+- name: gather operating system variables
+  include_vars: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_distribution | lower }}-{{ ansible_distribution_version | lower }}.yml"
+    - "{{ ansible_distribution | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
+    - "{{ ansible_distribution_file_variety | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
+    - "{{ ansible_os_family | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
+    - "{{ ansible_distribution | lower }}.yml"
+    - "{{ ansible_os_family | lower }}-{{ ansible_distribution_version.split('.')[0] }}.yml"
+    - "{{ ansible_os_family | lower }}.yml"
+  become: true
+  tags: pushgateway
+
+- name: assert usage of systemd as an init system
+  assert:
+    that: ansible_service_mgr == 'systemd'
+    msg: "This module only works with systemd"
+  become: true
+  tags: pushgateway
+
+- name: get systemd version
+  command: systemctl --version
+  changed_when: false
+  check_mode: false
+  register: __systemd_version
+  become: true
+  tags: pushgateway
+
+- name: Set systemd version fact
+  set_fact:
+    pushgateway_systemd_version: "{{ __systemd_version.stdout_lines[0].split(' ')[-1] }}"
+  become: true
+  tags: pushgateway
+
+- name: create system group
+  group:
+    name: "{{ pushgateway_system_group }}"
+    system: true
+    state: present
+  when: pushgateway_system_group != "root"
+  become: true
+  tags: pushgateway
+
+- name: create system user
+  user:
+    name: "{{ pushgateway_system_user }}"
+    system: true
+    shell: "/sbin/nologin"
+    group: "{{ pushgateway_system_group }}"
+    createhome: false
+  when: pushgateway_system_user != "root"
+  become: true
+  tags: pushgateway
+
+- name: check if pushgateway is installed
+  stat:
+    path: "{{ pushgateway_binary_local_dir }}/pushgateway"
+  register: __pushgateway_is_installed
+  become: true
+  tags: pushgateway
+
+- name: gather currently installed pushgateway version (if any)
+  command: "{{ pushgateway_binary_local_dir }}/pushgateway --version"
+  args:
+    warn: false
+  changed_when: false
+  register: __pushgateway_current_version_output
+  when: __pushgateway_is_installed.stat.exists
+  become: true
+  tags: pushgateway
+
+- block:
+    - name: get latest release
+      uri:
+        url: "https://api.github.com/repos/prometheus/pushgateway/releases/latest"
+        method: GET
+        return_content: true
+        status_code: 200
+        body_format: json
+        validate_certs: false
+        user: "{{ lookup('env', 'GH_USER') | default(omit) }}"
+        password: "{{ lookup('env', 'GH_TOKEN') | default(omit) }}"
+      environment: "{{ proxy_env }}"
+      no_log: true
+      register: _latest_release
+      until: _latest_release.status == 200
+      retries: 5
+
+    - name: "set pushgateway version to {{ _latest_release.json.tag_name[1:] }}"
+      set_fact:
+        pushgateway_version: "{{ _latest_release.json.tag_name[1:] }}"
+  when: pushgateway_version == "latest"
+  become: true
+  tags: pushgateway
+
+- block:
+  - name: get checksum list from github
+    set_fact:
+      _checksums: "{{ lookup('url', 'https://github.com/prometheus/pushgateway/releases/download/v' + pushgateway_version + '/sha256sums.txt', wantlist=True) | list }}"
+    environment: "{{ proxy_env }}"
+    run_once: true
+    become: true
+    tags: pushgateway
+
+  - name: "get checksum for {{ go_arch_map[ansible_architecture] | default(ansible_architecture) }} architecture"
+    set_fact:
+      pushgateway_checksum: "{{ item.split(' ')[0] }}"
+    environment: "{{proxy_env}}"
+    with_items:
+      - "{{ lookup('url', 'https://github.com/prometheus/pushgateway/releases/download/v' + pushgateway_version + '/sha256sums.txt', wantlist=True) | list }}"
+    when: "('linux-' + (go_arch_map[ansible_architecture] | default(ansible_architecture)) + '.tar.gz') in item"
+    become: true
+    tags: pushgateway
+
+  - name: download pushgateway binary to local folder
+    get_url:
+      url: "https://github.com/prometheus/pushgateway/releases/download/v{{ pushgateway_version }}/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
+      dest: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
+      checksum: "sha256:{{ pushgateway_checksum }}"
+    environment: "{{proxy_env}}"
+    register: _download_binary
+    until: _download_binary is succeeded
+    retries: 5
+    delay: 2
+    delegate_to: localhost
+    check_mode: false
+    become: true
+    tags: pushgateway
+
+  - name: unpack pushgateway binary
+    unarchive:
+      src: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
+      dest: "/tmp"
+      creates: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}/pushgateway"
+    delegate_to: localhost
+    check_mode: false
+    become: true
+    tags: pushgateway
+
+  - name: propagate pushgateway binaries
+    copy:
+      src: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}/pushgateway"
+      dest: "{{ pushgateway_binary_local_dir }}/pushgateway"
+      mode: 0755
+      owner: "{{ pushgateway_system_user }}"
+      group: "{{ pushgateway_system_group }}"
+    notify: restart pushgateway
+    when: not ansible_check_mode
+    become: true
+    tags: pushgateway
+  when: (not __pushgateway_is_installed.stat.exists) or (__pushgateway_current_version_output.stderr_lines[0].split(" ")[2] != pushgateway_version)
+
+- name: copy the pushgateway systemd service file
+  template:
+    src: pushgateway.service.j2
+    dest: /etc/systemd/system/pushgateway.service
+    owner: root
+    group: root
+    mode: 0644
+  notify: restart pushgateway
+  become: true
+  tags: pushgateway
+
+- name: copy consul-agent service json
+  template:
+    src: consul_agent_service.json.j2
+    dest: /etc/consul.d/pushgateway.json
+    owner: consul
+    group: consul
+    mode: 0644
+  when: pushgateway_create_consul_agent_service
+  notify: reload consul
+  become: true
+  tags: pushgateway
+
+- block:
+  - name: create persistence file dir
+    file:
+      path: "{{ pushgateway_persistence_dir }}"
+      state: directory
+      owner: "{{ pushgateway_system_user }}"
+      group: "{{ pushgateway_system_group }}"
+      mode: 0755
+      become: true
+      tags: pushgateway
+
+  - name: create persistence file
+    file:
+      path: "{{ pushgateway_persistence_dir }}/persistence"
+      state: touch
+      owner: "{{ pushgateway_system_user }}"
+      group: "{{ pushgateway_system_group }}"
+      mode: 0640
+    register: touch_log
+    changed_when: touch_log.diff.before.state != "file"  # Needed for idempotance (https://github.com/ansible/ansible/issues/30226)
+    become: true
+    tags: pushgateway
+  when: pushgateway_persistence
+
+- name: install selinux dependencies
+  package:
+    name: "{{ item }}"
+    state: present
+  environment: "{{ proxy_env }}"
+  with_items: "{{ pushgateway_selinux_packages }}"
+  register: _install_packages
+  until: _install_packages is succeeded
+  retries: 5
+  delay: 2
+  when:
+    - ansible_version.full is version_compare('2.4', '>=')
+    - ansible_selinux.status == "enabled"
+  become: true
+  tags: pushgateway
+
+- name: allow binding to port in selinux
+  seport:
+    ports: "{{ pushgateway_web_listen_port }}"
+    proto: tcp
+    setype: http_port_t
+    state: present
+  when:
+    - ansible_version.full is version_compare('2.4', '>=')
+    - ansible_selinux.status == "enabled"
+  become: true
+  tags: pushgateway
+
+- name: allow access to port on firewalld
+  firewalld:
+    port: "{{ pushgateway_web_listen_port }}/tcp"
+    permanent: yes
+    state: true
+  when: pushgateway_firewalld_state == "enabled"
+  register: "_firewalld_pushgateway_state"
+  become: true
+  tags: pushgateway
+
+- name: reload firewalld service
+  service:
+    name: firewalld
+    state: reloaded
+  when: _firewalld_pushgateway_state['changed']
+  become: true
+  tags: pushgateway
+
+- name: ensure service is started and enabled
+  systemd:
+    daemon_reload: true
+    name: pushgateway
+    enabled: true
+  become: true
+  tags: pushgateway
