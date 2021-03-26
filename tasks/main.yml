@@ -162,18 +162,6 @@
   become: true
   tags: pushgateway
 
-- name: copy consul-agent service json
-  template:
-    src: consul_agent_service.json.j2
-    dest: /etc/consul.d/pushgateway.json
-    owner: consul
-    group: consul
-    mode: 0644
-  when: pushgateway_create_consul_agent_service
-  notify: reload consul
-  become: true
-  tags: pushgateway
-
 - block:
   - name: create persistence file dir
     file:
@@ -198,21 +186,12 @@
     tags: pushgateway
   when: pushgateway_persistence
 
-- name: install selinux dependencies
-  package:
-    name: "{{ item }}"
+- name: enable capabilities to ports lower than port 1024
+  capabilities:
+    path: "{{ pushgateway_binary_install_dir }}/pushgateway"
+    capability: CAP_NET_BIND_SERVICE+ep
     state: present
-  environment: "{{ proxy_env }}"
-  with_items: "{{ pushgateway_selinux_packages }}"
-  register: _install_packages
-  until: _install_packages is succeeded
-  retries: 5
-  delay: 2
-  when:
-    - ansible_version.full is version_compare('2.4', '>=')
-    - ansible_selinux.status == "enabled"
-  become: true
-  tags: pushgateway
+  when: pushgateway_web_listen_port <= 1024
 
 - name: allow binding to port in selinux
   seport:
@@ -226,21 +205,64 @@
   become: true
   tags: pushgateway
 
-- name: allow access to port on firewalld
+- name: check whether ufw status is active
+  command: "ufw status"
+  changed_when: False
+  ignore_errors: True
+  register: _ufw_status
+  become: true
+  when:
+    - pushgateway_allow_firewall
+    - ansible_os_family == 'Debian'
+  tags: pushgateway
+
+- name: configure ufw
+  community.general.ufw:
+    rule: allow
+    port: "{{ pushgateway_web_listen_port }}"
+    proto: tcp
+    state: enabled
+    comment: "pushgateway"
+  notify: reload ufw
+  become: true
+  tags: pushgateway
+  register: "_firewalld_pushgateway_state"
+  when:
+    - "'active' in _ufw_status.stdout"
+    - ansible_os_family == 'Debian'
+    - pushgateway_allow_firewall
+
+- name: reload ufw
+  systemd:
+    name: ufw
+    state: reloaded
+  when:
+    - _firewalld_pushgateway_state['changed']
+    - ansible_os_family == 'Debian'
+    - pushgateway_allow_firewall
+  become: true
+  tags: pushgateway
+
+- name: configure firewalld
   firewalld:
     port: "{{ pushgateway_web_listen_port }}/tcp"
     permanent: yes
     state: true
-  when: pushgateway_firewalld_state == "enabled"
+  when:
+    - pushgateway_allow_firewall
+    - ansible_os_family == 'RedHat'
   register: "_firewalld_pushgateway_state"
   become: true
   tags: pushgateway
 
-- name: reload firewalld service
-  service:
+- name: reload firewalld
+  systemd:
     name: firewalld
     state: reloaded
-  when: _firewalld_pushgateway_state['changed']
+  when:
+    - pushgateway_allow_firewall
+    - _firewalld_pushgateway_state['changed']
+    - - ansible_os_family == 'RedHat'
   become: true
   tags: pushgateway
 
