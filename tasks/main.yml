@@ -192,6 +192,7 @@
     capability: CAP_NET_BIND_SERVICE+ep
     state: present
   when: pushgateway_web_listen_port <= 1024
+  tags: pushgateway
 
 - name: allow binding to port in selinux
   seport:
@@ -226,22 +227,10 @@
   notify: reload ufw
   become: true
   tags: pushgateway
-  register: "_firewalld_pushgateway_state"
   when:
     - "'active' in _ufw_status.stdout"
     - ansible_os_family == 'Debian'
     - pushgateway_allow_firewall
-
-- name: reload ufw
-  systemd:
-    name: ufw
-    state: reloaded
-  when:
-    - _firewalld_pushgateway_state['changed']
-    - ansible_os_family == 'Debian'
-    - pushgateway_allow_firewall
-  become: true
-  tags: pushgateway
 
 - name: configure firewalld
   firewalld:
@@ -251,18 +240,7 @@
   when:
     - pushgateway_allow_firewall
     - ansible_os_family == 'RedHat'
-  register: "_firewalld_pushgateway_state"
-  become: true
-  tags: pushgateway
-
-- name: reload firewalld
-  systemd:
-    name: firewalld
-    state: reloaded
-  when:
-    - pushgateway_allow_firewall
-    - _firewalld_pushgateway_state['changed']
-    - - ansible_os_family == 'RedHat'
+  notify: reload firewalld
   become: true
   tags: pushgateway
 

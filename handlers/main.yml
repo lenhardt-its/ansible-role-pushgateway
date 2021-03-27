@@ -9,8 +9,21 @@
 
 - name: reload pushgateway
   systemd:
-    daemon_reload: true
     name: pushgateway
     state: reloaded
   become: true
   tags: pushgateway
+
+- name: reload ufw
+  systemd:
+    name: ufw
+    state: reloaded
+  tags: pushgateway
+  become: true
+
+- name: reload firewalld
+  systemd:
+    name: firewalld
+    state: reloaded
+  tags: pushgateway
+  become: true
