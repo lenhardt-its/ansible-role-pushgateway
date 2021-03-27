@@ -36,8 +36,8 @@ All variables which can be overridden are stored in [defaults/main.yml](defaults
 | `pushgateway_create_consul_agent_service` | "true" | Add consul agent config snipped |
 | `pushgateway_config_flags_extra` | {} | Additional configuration flags passed at startup to pushgateway binary |
 | `pushgateway_allow_firewall` | false | allow on firewall |
-| `pushgateway_system_user` | "{{ prometheus_user | default('prometheus') }}" | default system user |
-| `pushgateway_system_group` | "{{ prometheus_group | default('prometheus') }}" | default system group |
+| `pushgateway_system_user` | prometheus | default system user |
+| `pushgateway_system_group` | prometheus | default system group |
 | `pushgateway_log_level` | warn | default log level |
 | `pushgateway_log_format` | json | default log format |
 | `pushgateway_binary_local_dir` | /usr/local/bin | defaulr bin dir |
