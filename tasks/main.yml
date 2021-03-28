@@ -232,7 +232,9 @@
     port: "{{ pushgateway_web_listen_port }}"
     proto: tcp
     state: enabled
-    comment: "pushgateway"
+    comment: "Prometheus Pushgateway"
+  changed_when: False
+  ignore_errors: True
   notify: reload ufw
   become: true
   tags: pushgateway
@@ -246,6 +248,8 @@
     port: "{{ pushgateway_web_listen_port }}/tcp"
     permanent: yes
     state: true
+  changed_when: False
+  ignore_errors: True
   when:
     - "'running' in _firewalld_status.stdout"
     - pushgateway_allow_firewall
