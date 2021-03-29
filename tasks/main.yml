@@ -149,7 +149,7 @@
     when: not ansible_check_mode
     become: true
     tags: pushgateway
-  when: (not __pushgateway_is_installed.stat.exists) or (__pushgateway_current_version_output.stderr_lines[0].split(" ")[2] != pushgateway_version)
+  when: (not __pushgateway_is_installed.stat.exists) or (__pushgateway_current_version_output.stdout.split(" ")[2] != pushgateway_version)
 
 - name: copy the pushgateway systemd service file
   template:
