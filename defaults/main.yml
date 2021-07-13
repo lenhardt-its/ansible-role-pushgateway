@@ -12,6 +12,7 @@ pushgateway_persistence: true
 pushgateway_binary_local_dir: /usr/local/bin
 pushgateway_persistence_dir: /var/lib/pushgateway
 pushgateway_limit_nofile: 8192
+pushgateway_http_proxy: ""
 pushgateway_config_flags_extra: {}
 # pushgateway_config_flags_extra:
 #   persistence.interval: '5m'

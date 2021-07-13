@@ -27,11 +27,11 @@ NoNewPrivileges=true
 {% if pushgateway_persistence %}
 ReadWriteDirectories={{ pushgateway_persistence_dir }}
 {% endif %}
-{% if http_proxy is defined %}
-Environment="HTTP_PROXY={{ http_proxy }}"
+{% if pushgateway_http_proxy is defined %}
+Environment="HTTP_PROXY={{ pushgateway_http_proxy }}"
 {% endif %}
-{% if https_proxy is defined %}
-Environment="HTTPS_PROXY={{ http_proxy }}"
+{% if pushgateway_http_proxy is defined %}
+Environment="HTTPS_PROXY={{ pushgateway_http_proxy }}"
 {% endif %}
 SyslogIdentifier=pushgateway
 Restart=always

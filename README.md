@@ -41,6 +41,7 @@ All variables which can be overridden are stored in [defaults/main.yml](defaults
 | `pushgateway_log_format` | json | default log format |
 | `pushgateway_binary_local_dir` | /usr/local/bin | defaulr bin dir |
 | `pushgateway_persistence_dir` | /var/lib/pushgateway | default data dir |
+| `pushgateway_http_proxy` | null | define appliation proxy |
 | `pushgateway_config_flags_extra` | {} | additional startup params |
 
 ## Example
