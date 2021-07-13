@@ -1,38 +1,4 @@
 ---
-- name: gather operating system variables
-  include_vars: "{{ item }}"
-  with_first_found:
-    - "{{ ansible_distribution | lower }}-{{ ansible_distribution_version | lower }}.yml"
-    - "{{ ansible_distribution | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
-    - "{{ ansible_distribution_file_variety | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
-    - "{{ ansible_os_family | lower }}-{{ ansible_distribution_major_version | lower }}.yml"
-    - "{{ ansible_distribution | lower }}.yml"
-    - "{{ ansible_os_family | lower }}-{{ ansible_distribution_version.split('.')[0] }}.yml"
-    - "{{ ansible_os_family | lower }}.yml"
-  become: true
-  tags: pushgateway
-
-- name: assert usage of systemd as an init system
-  assert:
-    that: ansible_service_mgr == 'systemd'
-    msg: "This module only works with systemd"
-  become: true
-  tags: pushgateway
-
-- name: get systemd version
-  command: systemctl --version
-  changed_when: false
-  check_mode: false
-  register: __systemd_version
-  become: true
-  tags: pushgateway
-
-- name: Set systemd version fact
-  set_fact:
-    pushgateway_systemd_version: "{{ __systemd_version.stdout_lines[0].split(' ')[-1] }}"
-  become: true
-  tags: pushgateway
-
 - name: create system group
   group:
     name: "{{ pushgateway_system_group }}"
@@ -70,86 +36,45 @@
   become: true
   tags: pushgateway
 
-- block:
-    - name: get latest release
-      uri:
-        url: "https://api.github.com/repos/prometheus/pushgateway/releases/latest"
-        method: GET
-        return_content: true
-        status_code: 200
-        body_format: json
-        validate_certs: false
-        user: "{{ lookup('env', 'GH_USER') | default(omit) }}"
-        password: "{{ lookup('env', 'GH_TOKEN') | default(omit) }}"
-      environment: "{{ proxy_env }}"
-      no_log: true
-      register: _latest_release
-      until: _latest_release.status == 200
-      retries: 5
-
-    - name: "set pushgateway version to {{ _latest_release.json.tag_name[1:] }}"
-      set_fact:
-        pushgateway_version: "{{ _latest_release.json.tag_name[1:] }}"
-  when: pushgateway_version == "latest"
+- name: download pushgateway binary to local folder
+  get_url:
+    url: "https://github.com/prometheus/pushgateway/releases/download/v{{ pushgateway_version }}/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
+    dest: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
+  environment: "{{proxy_env}}"
+  register: _download_binary
+  until: _download_binary is succeeded
+  retries: 5
+  delay: 2
+  delegate_to: localhost
+  check_mode: false
   become: true
   tags: pushgateway
-
-- block:
-  - name: get checksum list from github
-    set_fact:
-      _checksums: "{{ lookup('url', 'https://github.com/prometheus/pushgateway/releases/download/v' + pushgateway_version + '/sha256sums.txt', wantlist=True) | list }}"
-    environment: "{{ proxy_env }}"
-    run_once: true
-    become: true
-    tags: pushgateway
-
-  - name: "get checksum for {{ go_arch_map[ansible_architecture] | default(ansible_architecture) }} architecture"
-    set_fact:
-      pushgateway_checksum: "{{ item.split(' ')[0] }}"
-    environment: "{{proxy_env}}"
-    with_items:
-      - "{{ lookup('url', 'https://github.com/prometheus/pushgateway/releases/download/v' + pushgateway_version + '/sha256sums.txt', wantlist=True) | list }}"
-    when: "('linux-' + (go_arch_map[ansible_architecture] | default(ansible_architecture)) + '.tar.gz') in item"
-    become: true
-    tags: pushgateway
-
-  - name: download pushgateway binary to local folder
-    get_url:
-      url: "https://github.com/prometheus/pushgateway/releases/download/v{{ pushgateway_version }}/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
-      dest: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
-      checksum: "sha256:{{ pushgateway_checksum }}"
-    environment: "{{proxy_env}}"
-    register: _download_binary
-    until: _download_binary is succeeded
-    retries: 5
-    delay: 2
-    delegate_to: localhost
-    check_mode: false
-    become: true
-    tags: pushgateway
-
-  - name: unpack pushgateway binary
-    unarchive:
-      src: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
-      dest: "/tmp"
-      creates: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}/pushgateway"
-    delegate_to: localhost
-    check_mode: false
-    become: true
-    tags: pushgateway
-
-  - name: propagate pushgateway binaries
-    copy:
-      src: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}/pushgateway"
-      dest: "{{ pushgateway_binary_local_dir }}/pushgateway"
-      mode: 0755
-      owner: "{{ pushgateway_system_user }}"
-      group: "{{ pushgateway_system_group }}"
-    notify: restart pushgateway
-    when: not ansible_check_mode
-    become: true
-    tags: pushgateway
   when: (not __pushgateway_is_installed.stat.exists) or (__pushgateway_current_version_output.stderr_lines[0].split(" ")[2] != pushgateway_version)
+
+- name: unpack pushgateway binary
+  unarchive:
+    src: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}.tar.gz"
+    dest: "/tmp"
+    creates: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}/pushgateway"
+  delegate_to: localhost
+  check_mode: false
+  become: true
+  tags: pushgateway
+  when: (not __pushgateway_is_installed.stat.exists) or (__pushgateway_current_version_output.stderr_lines[0].split(" ")[2] != pushgateway_version)
+  
+- name: propagate pushgateway binaries
+  copy:
+    src: "/tmp/pushgateway-{{ pushgateway_version }}.linux-{{ go_arch_map[ansible_architecture] | default(ansible_architecture) }}/pushgateway"
+    dest: "{{ pushgateway_binary_local_dir }}/pushgateway"
+    mode: 0755
+    owner: "{{ pushgateway_system_user }}"
+    group: "{{ pushgateway_system_group }}"
+  notify: restart pushgateway
+  become: true
+  tags: pushgateway
+  when:
+    - not ansible_check_mode
+    - (not __pushgateway_is_installed.stat.exists) or (__pushgateway_current_version_output.stderr_lines[0].split(" ")[2] != pushgateway_version)
 
 - name: copy the pushgateway systemd service file
   template:
@@ -170,8 +95,8 @@
       owner: "{{ pushgateway_system_user }}"
       group: "{{ pushgateway_system_group }}"
       mode: 0755
-      become: true
-      tags: pushgateway
+    become: true
+    tags: pushgateway
 
   - name: create persistence file
     file:
@@ -185,78 +110,6 @@
     become: true
     tags: pushgateway
   when: pushgateway_persistence
-
-- name: enable capabilities to ports lower than port 1024
-  capabilities:
-    path: "{{ pushgateway_binary_install_dir }}/pushgateway"
-    capability: CAP_NET_BIND_SERVICE+ep
-    state: present
-  when: pushgateway_web_listen_port <= 1024
-  tags: pushgateway
-
-- name: allow binding to port in selinux
-  seport:
-    ports: "{{ pushgateway_web_listen_port }}"
-    proto: tcp
-    setype: http_port_t
-    state: present
-  when:
-    - ansible_version.full is version_compare('2.4', '>=')
-    - ansible_selinux.status == "enabled"
-  become: true
-  tags: pushgateway
-
-- name: check whether ufw status is active
-  command: "ufw status"
-  changed_when: False
-  ignore_errors: True
-  register: _ufw_status
-  become: true
-  when:
-    - pushgateway_allow_firewall
-    - ansible_os_family == 'Debian'
-  tags: pushgateway
-
-- name: check whether firewalld status is active
-  command: "firewall-cmd --state"
-  changed_when: False
-  ignore_errors: True
-  register: _firewalld_status
-  become: true
-  when: ansible_os_family == 'RedHat'
-  tags: pushgateway
-
-- name: configure ufw
-  community.general.ufw:
-    rule: allow
-    port: "{{ pushgateway_web_listen_port }}"
-    proto: tcp
-    state: enabled
-    comment: "Prometheus Pushgateway"
-  changed_when: False
-  ignore_errors: True
-  notify: reload ufw
-  become: true
-  tags: pushgateway
-  when:
-    - "'active' in _ufw_status.stdout"
-    - ansible_os_family == 'Debian'
-    - pushgateway_allow_firewall
-
-- name: configure firewalld
-  firewalld:
-    port: "{{ pushgateway_web_listen_port }}/tcp"
-    permanent: yes
-    state: true
-  changed_when: False
-  ignore_errors: True
-  when:
-    - "'running' in _firewalld_status.stdout"
-    - pushgateway_allow_firewall
-    - ansible_os_family == 'RedHat'
-  notify: reload firewalld
-  become: true
-  tags: pushgateway
 
 - name: ensure service is started and enabled
   systemd:

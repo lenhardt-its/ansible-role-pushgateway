@@ -21,32 +21,18 @@ ExecStart={{ pushgateway_binary_local_dir }}/pushgateway \
   --web.listen-address={{ pushgateway_web_listen_address }}:{{ pushgateway_web_listen_port }}{% for flag, flag_value in pushgateway_config_flags_extra.items() %}\
   --{{ flag }}{% if flag_value %}={{ flag_value }}{% endif %} {% endfor %}
 
-PrivateTmp=true
-PrivateDevices=true
-ProtectHome=true
+LimitNOFILE={{ pushgateway_limit_nofile | default('8192') }}
+LimitMEMLOCK=infinity
 NoNewPrivileges=true
 {% if pushgateway_persistence %}
-{%   if pushgateway_systemd_version.stdout | int >= 231 %}
-ReadWritePaths={{ pushgateway_persistence_dir }}
-{%   else %}
 ReadWriteDirectories={{ pushgateway_persistence_dir }}
-{%   endif %}
-{% endif %}
-{% if pushgateway_systemd_version.stdout | int >= 232 %}
-ProtectSystem=strict
-ProtectControlGroups=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-{% else %}
-ProtectSystem=full
 {% endif %}
 {% if http_proxy is defined %}
 Environment="HTTP_PROXY={{ http_proxy }}"
 {% endif %}
 {% if https_proxy is defined %}
-Environment="HTTPS_PROXY={{ https_proxy }}"
+Environment="HTTPS_PROXY={{ http_proxy }}"
 {% endif %}
-
 SyslogIdentifier=pushgateway
 Restart=always
 RestartSec=0

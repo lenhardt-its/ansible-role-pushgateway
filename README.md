@@ -19,7 +19,6 @@ Deploy prometheus [Pushgateway](https://github.com/prometheus/pushgateway) using
 ## Requirements
 
 - Ansible >= 2.9 (It might work on previous versions, but we cannot guarantee it)
-- Community Packages: `ansible-galaxy collection install community.general`
 
 ## Role Variables
 
@@ -35,7 +34,7 @@ All variables which can be overridden are stored in [defaults/main.yml](defaults
 | `pushgateway_persistence` | true | Enable persistence file |
 | `pushgateway_create_consul_agent_service` | "true" | Add consul agent config snipped |
 | `pushgateway_config_flags_extra` | {} | Additional configuration flags passed at startup to pushgateway binary |
-| `pushgateway_allow_firewall` | false | allow on firewall |
+| `pushgateway_limit_nofile` | 8192 | nofile limit in systemd unit |
 | `pushgateway_system_user` | prometheus | default system user |
 | `pushgateway_system_group` | prometheus | default system group |
 | `pushgateway_log_level` | warn | default log level |
