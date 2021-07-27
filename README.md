@@ -25,7 +25,7 @@ All variables which can be overridden are stored in [defaults/main.yml](defaults
 | Name           | Default Value | Description                        |
 | -------------- | ------------- | -----------------------------------|
 | `proxy_env` | {} | Proxy environment variables |
-| `pushgateway_version` | 1.2.0 | Node exporter package version |
+| `pushgateway_version` | 1.4.1 | Node exporter package version |
 | `pushgateway_web_listen_address` | 0.0.0.0 | default listen address |
 | `pushgateway_web_listen_port` | 9091 | default listen port |
 | `pushgateway_web_external_url` | "http://{{ ansible_domain }}.{{ ansible_hostname }}:{{ pushgateway_web_listen_port }}" | External address on which pushgateway is available. Useful when behind reverse proxy. Ex. http://example.org/pushgateway |
