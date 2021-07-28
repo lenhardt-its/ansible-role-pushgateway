@@ -2,7 +2,7 @@
 proxy_env: {}
 pushgateway_version: 1.4.1
 pushgateway_web_listen_address: 0.0.0.0
-pushgateway_web_listen_prot: 9091
+pushgateway_web_listen_port: 9091
 pushgateway_web_external_url: "http://{{ ansible_domain }}.{{ ansible_hostname }}:{{ pushgateway_web_listen_port }}"
 pushgateway_system_user: "{{ prometheus_user | default('pushgateway') }}"
 pushgateway_system_group: "{{ prometheus_group | default('pushgateway') }}"
