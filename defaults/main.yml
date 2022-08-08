@@ -1,6 +1,6 @@
 ---
 proxy_env: {}
-pushgateway_version: 1.4.2
+pushgateway_version: 1.4.3
 pushgateway_web_listen_address: 0.0.0.0
 pushgateway_web_listen_port: 9091
 pushgateway_web_external_url: "http://{{ ansible_domain }}.{{ ansible_hostname }}:{{ pushgateway_web_listen_port }}"
